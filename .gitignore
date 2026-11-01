@@ -1,0 +1,19 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Datasets
+data/raw/
+data/processed/
+data/metadata/
+
+# Generated outputs
+outputs/checkpoints/
+outputs/figures/
+outputs/metrics/
