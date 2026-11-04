@@ -4,6 +4,7 @@ import math
 import json
 import csv
 import time
+import random
 from pathlib import Path
 from dotenv import load_dotenv
 from shapely.geometry import shape, box
@@ -25,6 +26,9 @@ with open(json_path, "r", encoding="utf-8-sig") as file:
 
 
 districts = district_data["features"]
+
+
+MAX_METADATA_PER_DISTRICT = 6000
 
 
 # basically split the districts into smaller grid boxes because there's a limit for how many images u can get per request
@@ -245,6 +249,24 @@ def save_metadata_csv(images, district_name):
     print(f"Metadata saved to: {save_path}")
 
 
+def load_existing_ids(district_name):
+    
+    path = ROOT / "data" / "metadata" / "images.csv"
+    existing_ids = set()
+    
+    if not path.exists():
+        return existing_ids
+    
+    with open(path, "r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        
+        for row in reader:
+            if row["district"] == district_name.removesuffix(" District"):
+                existing_ids.add(row["image_id"])
+                
+    return existing_ids
+
+
 def get_grid_id(district_name, bbox):
     coordinates = ",".join(f"{value:.10f}" for value in bbox)
     
@@ -290,12 +312,12 @@ def mark_grid_completed(grid_id, district_name):
 
 
 
+
 if __name__ == "__main__":
     
     completed_grids = load_completed_grids()
     
-    
-    # None searches all districts, or you can change it
+    # None = all 18 districts
     ONLY_DISTRICT = None
     
     for district in districts:
@@ -306,19 +328,30 @@ if __name__ == "__main__":
         if ONLY_DISTRICT is not None and name != ONLY_DISTRICT:
             continue
         
+        # Load image IDs already saved for this district
+        existing_ids = load_existing_ids(name)
+        
+        # Generate grid and randomize search order
         grid = generate_grid(polygon)
-        all_images = {}
+        random.Random(42).shuffle(grid)
         
         print(f"\n{'=' * 50}")
         print(f"Searching {name}")
         print(f"Total grid cells: {len(grid)}")
+        print(f"Existing images: {len(existing_ids)}")
+        print(f"Target: {MAX_METADATA_PER_DISTRICT}")
         print(f"{'=' * 50}")
         
         for i, bbox in enumerate(grid, start=1):
             
+            # Stop once the metadata target is reached
+            if len(existing_ids) >= MAX_METADATA_PER_DISTRICT:
+                print(f"{name}: Metadata target reached!")
+                break
+            
             grid_id = get_grid_id(name, bbox)
             
-            # Skip previously completed grid cells
+            # Skip previously completed grids
             if grid_id in completed_grids:
                 print(f"Grid {i}/{len(grid)}: Already completed. Skipping.")
                 continue
@@ -326,37 +359,52 @@ if __name__ == "__main__":
             # Search Mapillary
             images = search_images_recursive(bbox)
             
-            # Keep only images belonging to this district
+            # Keep only images in the correct district
             filtered_images = filter_images_by_district(
                 images, name
             )
             
-            # Avoid duplicate IDs across grid cells
-            for image in filtered_images:
-                all_images[image["id"]] = image
-                
-            # Prepare metadata for saving
+            # Exclude image IDs already saved
+            new_candidates = [
+                image for image in filtered_images
+                if str(image["id"]) not in existing_ids
+            ]
+            
+            # Randomize which images to keep
+            random.shuffle(new_candidates)
+            
+            # Calculate how many more images we need
+            remaining = MAX_METADATA_PER_DISTRICT - len(existing_ids)
+            
+            # Select up to the remaining quota
+            selected_images = new_candidates[:remaining]
+            
             new_images = {
-                image["id"]: image
-                for image in filtered_images
+                str(image["id"]): image
+                for image in selected_images
             }
             
-            # Save results before recording completion
+            # Save metadata
             save_metadata_csv(new_images, name)
             
-            mark_grid_completed(grid_id, name)
-            completed_grids.add(grid_id)
+            # Update existing IDs
+            existing_ids.update(new_images.keys())
             
+            # Mark complete only if we saved all new candidates
+            if len(new_candidates) <= remaining:
+                mark_grid_completed(grid_id, name)
+                completed_grids.add(grid_id)
+            else:
+                print("Grid partially saved due to metadata limit.")
+                
             print(
-                f"Grid {i}/{len(grid)} completed. "
-                f"Found {len(filtered_images)} district images."
+                f"Grid {i}/{len(grid)}: "
+                f"Added {len(new_images)} images. "
+                f"Total: {len(existing_ids)}"
             )
             
-        print(f"\nFinished processing {name}")
-        print(
-            f"Unique images encountered in this run: "
-            f"{len(all_images)}"
-        )
+        print(f"\nFinished {name}")
+        print(f"Total metadata images: {len(existing_ids)}")
         
     print("\nAll selected districts processed!")
 
