@@ -20,7 +20,7 @@ IMAGE_DIR = ROOT / "data" / "raw"
 
 
 # change this
-MAX_PER_DISTRICT = 3000
+MAX_PER_DISTRICT = 500
 
 
 if not TOKEN:
