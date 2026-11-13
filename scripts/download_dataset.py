@@ -16,6 +16,7 @@ TOKEN = os.getenv("MAPILLARY_ACCESS_TOKEN")
 
 
 CSV_PATH = ROOT / "data" / "metadata" / "images.csv"
+DOWNLOADED_CSV = ROOT / "data" / "metadata" / "downloaded_images.csv"
 IMAGE_DIR = ROOT / "data" / "raw"
 
 
@@ -108,6 +109,71 @@ def download_image(image_id, district):
         temp_path.unlink(missing_ok=True)
         print(f"Failed {image_id}: {error}")
         return "failed"
+
+
+def load_recorded_ids():
+
+    recorded_ids = set()
+
+    if DOWNLOADED_CSV.exists():
+        with open(DOWNLOADED_CSV, "r", newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+
+            for row in reader:
+                recorded_ids.add(row["image_id"])
+
+    return recorded_ids
+
+
+def save_downloaded_metadata(row, recorded_ids):
+
+    image_id = row["image_id"]
+
+    # Avoid duplicate entries
+    if image_id in recorded_ids:
+        return
+
+    district = row["district"]
+    folder_name = district.lower().replace(" ", "_")
+
+    relative_path = f"data/raw/{folder_name}/{image_id}.jpg"
+
+    fieldnames = [
+        "image_id",
+        "district",
+        "latitude",
+        "longitude",
+        "sequence_id",
+        "captured_at",
+        "file_path"
+    ]
+
+    DOWNLOADED_CSV.parent.mkdir(parents=True, exist_ok=True)
+
+    has_header = (
+        DOWNLOADED_CSV.exists()
+        and DOWNLOADED_CSV.stat().st_size > 0
+    )
+
+    with open(DOWNLOADED_CSV, "a", newline="", encoding="utf-8") as file:
+
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+
+        if not has_header:
+            writer.writeheader()
+
+        writer.writerow({
+            "image_id": image_id,
+            "district": district,
+            "latitude": row["latitude"],
+            "longitude": row["longitude"],
+            "sequence_id": row.get("sequence_id", ""),
+            "captured_at": row.get("captured_at", ""),
+            "file_path": relative_path
+        })
+
+    recorded_ids.add(image_id)
+
 
 
 def main():
